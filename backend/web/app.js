@@ -11,9 +11,15 @@ function setStatus(state) {
 
 function formatMetric(name, point) {
   const { value, unit } = point;
-  if (unit === "1") return `${(value * 100).toFixed(1)}%`;
+  // unit "1" is UCUM for "dimensionless" - it's used both for 0..1 ratios
+  // (*.utilization) and for plain counts (e.g. active request count), so the
+  // metric name decides which one it is, not the unit alone.
+  if (unit === "1" && name.endsWith(".utilization")) return `${(value * 100).toFixed(1)}%`;
+  if (unit === "1") return `${value.toFixed(0)}`;
   if (unit === "By") return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (unit === "By/s") return `${(value / (1024 * 1024)).toFixed(2)} MB/s`;
   if (unit === "cores") return `${value.toFixed(2)} cores`;
+  if (unit === "1/s") return `${value.toFixed(1)}/s`;
   return `${value}`;
 }
 

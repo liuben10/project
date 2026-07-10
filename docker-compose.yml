@@ -87,5 +87,40 @@ services:
     depends_on:
       - kafka
 
+  # A real Spring Boot REST API with the distviz agent running inside the
+  # same container, scraping the app's own Micrometer/Actuator Prometheus
+  # endpoint for live HTTP request-rate and in-flight-request metrics.
+  java-api:
+    build:
+      context: .
+      dockerfile: deploy/java-api/Dockerfile
+    ports:
+      - "18080:8080"
+    environment:
+      COMPONENT_NAME: java-api
+      BACKEND_ENDPOINT: backend:8080
+    depends_on:
+      - backend
+
+  # Continuously calls the java-api's REST endpoints so the HTTP
+  # request-rate metric on the dashboard has something to show.
+  java-load:
+    image: curlimages/curl:8.11.0
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 15
+        i=0
+        while true; do
+          i=$$((i+1))
+          curl -s -o /dev/null http://java-api:8080/api/orders/$$i
+          if [ $$((i % 5)) -eq 0 ]; then
+            curl -s -o /dev/null -X POST http://java-api:8080/api/orders
+          fi
+          sleep 0.2
+        done
+    depends_on:
+      - java-api
+
 volumes:
   backend-data:

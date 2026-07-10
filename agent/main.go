@@ -31,6 +31,15 @@ var promMetricSets = map[string][]collector.PromMetric{
 		{PromName: "kafka_bytes_in_per_second", Name: "kafka.bytes.in", Unit: "By/s"},
 		{PromName: "kafka_bytes_out_per_second", Name: "kafka.bytes.out", Unit: "By/s"},
 	},
+	// Micrometer/Spring Boot Actuator's Prometheus endpoint. Both are Summary-typed series
+	// (parsed under their base name, without a "_count" suffix - see metricValue in
+	// promscrape.go): http_server_requests_seconds is a cumulative request counter split
+	// across every (method, uri, status) combination, summed here and converted to a rate;
+	// http_server_requests_active_seconds is already an instantaneous in-flight-request count.
+	"java-http": {
+		{PromName: "http_server_requests_seconds", Name: "http.requests.rate", Unit: "1/s", Rate: true},
+		{PromName: "http_server_requests_active_seconds", Name: "http.requests.active", Unit: "1"},
+	},
 }
 
 func main() {
