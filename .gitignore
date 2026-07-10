@@ -1,0 +1,6 @@
+# build artifacts
+*.exe
+*.db
+
+# local Claude Code settings (machine-specific)
+.claude/settings.local.json
