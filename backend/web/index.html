@@ -11,7 +11,10 @@
   <h1>distviz</h1>
   <span id="conn-status" class="status status--connecting">connecting…</span>
 </header>
-<main id="components"></main>
+<main class="topology">
+  <svg id="edges" class="edges"></svg>
+  <div id="components" class="components"></div>
+</main>
 <template id="component-template">
   <div class="component">
     <div class="shape"></div>

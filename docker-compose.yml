@@ -16,8 +16,12 @@ services:
       COMPONENT_TYPE: app-server
       BACKEND_ENDPOINT: backend:8080
       POLL_INTERVAL: 3s
+      # Periodically calls java-api so a real dependency edge shows up on
+      # the dashboard (checkout-service -> java-api).
+      CALL_TARGET: http://java-api:8080/api/orders/1
     depends_on:
       - backend
+      - java-api
 
   orders-worker:
     build:
@@ -71,25 +75,52 @@ services:
     depends_on:
       - backend
 
-  # Produces a steady trickle of messages so the Kafka throughput metrics on
-  # the dashboard have something to show without manual intervention.
-  kafka-load:
-    image: apache/kafka:latest
-    entrypoint: ["bash", "-c"]
-    command:
-      - |
-        sleep 20
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic load-test --partitions 3 --replication-factor 1
-        while true; do
-          /opt/kafka/bin/kafka-producer-perf-test.sh --topic load-test --num-records 20000 --record-size 512 --throughput 2000 --producer-props bootstrap.servers=kafka:9092
-          sleep 5
-        done
+  # Produces a steady trickle of messages (feeding the Kafka throughput
+  # metrics) and, via edgeclient.Reporter, reports a kafka-producer ->
+  # kafka-broker dependency edge on every send.
+  kafka-producer:
+    build:
+      context: .
+      dockerfile: deploy/kafka-client/Dockerfile
+    environment:
+      COMPONENT_NAME: kafka-producer
+      COMPONENT_TYPE: app-server
+      BACKEND_ENDPOINT: backend:8080
+      MODE: produce
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: load-test
+      KAFKA_BROKER_COMPONENT: kafka-broker
     depends_on:
       - kafka
+      - backend
+
+  # Consumes those same messages and reports a kafka-consumer ->
+  # kafka-broker edge, so the dashboard shows both directions of Kafka
+  # traffic (produce and consume are two independent TCP dependencies on
+  # the broker, not a single shared edge).
+  kafka-consumer:
+    build:
+      context: .
+      dockerfile: deploy/kafka-client/Dockerfile
+    environment:
+      COMPONENT_NAME: kafka-consumer
+      COMPONENT_TYPE: app-server
+      BACKEND_ENDPOINT: backend:8080
+      MODE: consume
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: load-test
+      KAFKA_BROKER_COMPONENT: kafka-broker
+    depends_on:
+      - kafka
+      - backend
+      - kafka-producer
 
   # A real Spring Boot REST API with the distviz agent running inside the
   # same container, scraping the app's own Micrometer/Actuator Prometheus
   # endpoint for live HTTP request-rate and in-flight-request metrics.
+  # Calls inventory-service on every order creation (via EdgeReporter, a
+  # Java port of sdk/edgeclient), reporting a java-api -> inventory-service
+  # edge the same way the Go components report theirs.
   java-api:
     build:
       context: .
@@ -98,6 +129,21 @@ services:
       - "18080:8080"
     environment:
       COMPONENT_NAME: java-api
+      BACKEND_ENDPOINT: backend:8080
+      INVENTORY_SERVICE_URL: http://inventory-service:8080/api/inventory
+    depends_on:
+      - backend
+      - inventory-service
+
+  # A second, independent Spring Boot service that java-api calls - exists
+  # purely to demonstrate a Java-to-Java dependency edge alongside the
+  # checkout-service -> java-api one.
+  inventory-service:
+    build:
+      context: .
+      dockerfile: deploy/inventory-service/Dockerfile
+    environment:
+      COMPONENT_NAME: inventory-service
       BACKEND_ENDPOINT: backend:8080
     depends_on:
       - backend

@@ -7,11 +7,18 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
+
+	"distviz/sdk/edgeclient"
 )
 
 func main() {
 	go burnResources()
+
+	if target := os.Getenv("CALL_TARGET"); target != "" {
+		go callTargetLoop(target)
+	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
@@ -19,6 +26,23 @@ func main() {
 
 	log.Println("demoapp listening on :9000")
 	log.Fatal(http.ListenAndServe(":9000", nil))
+}
+
+// callTargetLoop periodically calls another system's HTTP endpoint through
+// the edgeclient-wrapped client, so the resulting dependency shows up as an
+// edge on the topology dashboard. This is purely to exercise/demo that
+// feature - demoapp itself has no real reason to call anything.
+func callTargetLoop(target string) {
+	client := edgeclient.WrapClient(http.DefaultClient)
+	for {
+		resp, err := client.Get(target)
+		if err != nil {
+			log.Printf("call %s: %v", target, err)
+		} else {
+			resp.Body.Close()
+		}
+		time.Sleep(time.Duration(1000+rand.Intn(2000)) * time.Millisecond)
+	}
 }
 
 // burnResources periodically spends CPU and holds onto memory for a random

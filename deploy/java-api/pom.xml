@@ -33,6 +33,23 @@
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-registry-prometheus</artifactId>
     </dependency>
+    <!-- Just the generated OTLP message classes (no SDK, no gRPC) - used
+         by com.distviz.demo.edge.EdgeReporter to build the same sampled
+         edge-report payload sdk/edgeclient sends from Go. -->
+    <dependency>
+      <groupId>io.opentelemetry.proto</groupId>
+      <artifactId>opentelemetry-proto</artifactId>
+      <version>1.11.0-alpha</version>
+    </dependency>
+    <!-- opentelemetry-proto's generated code requires protobuf-java >= 4.35.1;
+         Spring Boot's dependency management pulls an older 4.34.2 by
+         default, which fails at class-load time (gencode/runtime version
+         check), so pin it explicitly here to win over that transitive version. -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+      <version>4.35.1</version>
+    </dependency>
   </dependencies>
 
   <build>

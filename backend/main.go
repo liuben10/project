@@ -23,6 +23,7 @@ var webFS embed.FS
 type wsSnapshotMessage struct {
 	Type       string            `json:"type"`
 	Components []state.Component `json:"components"`
+	Edges      []state.Edge      `json:"edges"`
 }
 
 func main() {
@@ -36,6 +37,7 @@ func main() {
 	defer st.Close()
 
 	live := state.New()
+	hydrateFromStore(st, live)
 	h := hub.New()
 
 	ingestHandler := ingest.NewHandler(st, live)
@@ -53,7 +55,7 @@ func main() {
 	mux.HandleFunc("/api/components", apiHandler.Components)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		h.ServeWS(w, r, func() []byte {
-			msg, err := json.Marshal(wsSnapshotMessage{Type: "snapshot", Components: live.Snapshot()})
+			msg, err := json.Marshal(wsSnapshotMessage{Type: "snapshot", Components: live.Snapshot(), Edges: live.EdgeSnapshot()})
 			if err != nil {
 				return nil
 			}
@@ -65,6 +67,31 @@ func main() {
 	log.Printf("distviz backend listening on %s (db=%s)", addr, dbPath)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
+	}
+}
+
+// hydrateFromStore seeds live (in-memory) state from SQLite so components
+// and edges already known from before a restart show up immediately,
+// instead of only reappearing as each one happens to report again.
+func hydrateFromStore(st *store.Store, live *state.Store) {
+	if components, err := st.ListComponents(); err != nil {
+		log.Printf("load persisted components: %v", err)
+	} else {
+		stateComponents := make([]state.Component, len(components))
+		for i, c := range components {
+			stateComponents[i] = state.Component{ID: c.ID, Name: c.Name, Type: c.Type}
+		}
+		live.LoadComponents(stateComponents)
+	}
+
+	if edges, err := st.ListEdges(); err != nil {
+		log.Printf("load persisted edges: %v", err)
+	} else {
+		stateEdges := make([]state.Edge, len(edges))
+		for i, e := range edges {
+			stateEdges[i] = state.Edge{Source: e.Source, Destination: e.Destination, LastSeenNano: e.LastSeenNano, Count: e.Count}
+		}
+		live.LoadEdges(stateEdges)
 	}
 }
 

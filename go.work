@@ -4,4 +4,6 @@ use (
 	./backend
 	./agent
 	./deploy/demo-app
+	./deploy/kafka-client
+	./sdk
 )

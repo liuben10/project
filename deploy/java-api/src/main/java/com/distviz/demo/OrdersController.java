@@ -16,6 +16,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class OrdersController {
 
+    private final InventoryClient inventoryClient;
+
+    public OrdersController(InventoryClient inventoryClient) {
+        this.inventoryClient = inventoryClient;
+    }
+
     @GetMapping("/api/orders/{id}")
     public ResponseEntity<?> getOrder(@PathVariable long id) throws InterruptedException {
         simulateWork();
@@ -33,6 +39,7 @@ public class OrdersController {
     public ResponseEntity<?> createOrder() throws InterruptedException {
         simulateWork();
         long id = ThreadLocalRandom.current().nextLong(1_000_000);
+        inventoryClient.checkStock(id % 1000);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id, "status", "created"));
     }
 

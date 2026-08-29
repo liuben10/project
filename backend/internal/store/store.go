@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS datapoints (
 
 CREATE INDEX IF NOT EXISTS idx_datapoints_lookup
 	ON datapoints(component_id, metric_name, ts_unix_nano);
+
+CREATE TABLE IF NOT EXISTS edges (
+	source TEXT NOT NULL,
+	destination TEXT NOT NULL,
+	last_seen_unix_nano INTEGER NOT NULL,
+	count INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (source, destination)
+);
 `
 
 func Open(path string) (*Store, error) {
@@ -91,6 +99,45 @@ func (s *Store) ListComponents() ([]Component, error) {
 			return nil, fmt.Errorf("scan component: %w", err)
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+type Edge struct {
+	Source       string
+	Destination  string
+	LastSeenNano int64
+	Count        int64
+}
+
+func (s *Store) UpsertEdge(e Edge) error {
+	_, err := s.db.Exec(`
+		INSERT INTO edges (source, destination, last_seen_unix_nano, count)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(source, destination) DO UPDATE SET
+			last_seen_unix_nano = excluded.last_seen_unix_nano,
+			count = excluded.count
+	`, e.Source, e.Destination, e.LastSeenNano, e.Count)
+	if err != nil {
+		return fmt.Errorf("upsert edge: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListEdges() ([]Edge, error) {
+	rows, err := s.db.Query(`SELECT source, destination, last_seen_unix_nano, count FROM edges`)
+	if err != nil {
+		return nil, fmt.Errorf("list edges: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Edge
+	for rows.Next() {
+		var e Edge
+		if err := rows.Scan(&e.Source, &e.Destination, &e.LastSeenNano, &e.Count); err != nil {
+			return nil, fmt.Errorf("scan edge: %w", err)
+		}
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }

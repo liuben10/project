@@ -27,6 +27,15 @@ const (
 	attrComponentType = "component.type"
 )
 
+// edgeMetricName marks a metric as a sampled dependency edge report rather
+// than a per-component metric - see sdk/edgeclient.MetricName, which must
+// match this. attrDestination is the datapoint attribute naming the system
+// the resource (the edge's source) called.
+const (
+	edgeMetricName  = "distviz.edge.calls"
+	attrDestination = "destination"
+)
+
 type Handler struct {
 	store *store.Store
 	state *state.Store
@@ -42,6 +51,11 @@ func NewHandler(s *store.Store, st *state.Store) *Handler {
 type wsUpdateMessage struct {
 	Type      string          `json:"type"`
 	Component state.Component `json:"component"`
+}
+
+type wsEdgeMessage struct {
+	Type string     `json:"type"`
+	Edge state.Edge `json:"edge"`
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +85,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var lastTs int64
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
+				if m.GetName() == edgeMetricName {
+					for _, dp := range numberDataPoints(m) {
+						ts := int64(dp.GetTimeUnixNano())
+						destination := attrValue(dp, attrDestination)
+						if destination == "" {
+							continue
+						}
+
+						edge := h.state.RecordEdge(componentID, destination, ts)
+
+						if err := h.store.UpsertEdge(store.Edge{
+							Source: edge.Source, Destination: edge.Destination,
+							LastSeenNano: edge.LastSeenNano, Count: edge.Count,
+						}); err != nil {
+							log.Printf("upsert edge: %v", err)
+						}
+
+						if h.Broadcast != nil {
+							msg, err := json.Marshal(wsEdgeMessage{Type: "edge_update", Edge: edge})
+							if err == nil {
+								h.Broadcast(msg)
+							}
+						}
+						lastTs = ts
+					}
+					continue
+				}
+
 				for _, dp := range numberDataPoints(m) {
 					ts := int64(dp.GetTimeUnixNano())
 					point := state.MetricPoint{Value: numberValue(dp), Unit: m.GetUnit(), TsUnixNano: ts}
@@ -133,6 +175,15 @@ func stringValue(v *commonpb.AnyValue) string {
 		return ""
 	}
 	return v.GetStringValue()
+}
+
+func attrValue(dp *metricspb.NumberDataPoint, key string) string {
+	for _, kv := range dp.GetAttributes() {
+		if kv.GetKey() == key {
+			return stringValue(kv.GetValue())
+		}
+	}
+	return ""
 }
 
 func numberDataPoints(m *metricspb.Metric) []*metricspb.NumberDataPoint {

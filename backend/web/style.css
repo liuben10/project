@@ -44,14 +44,42 @@ header h1 {
 .status--connecting { color: var(--warn); border-color: var(--warn); }
 .status--disconnected { color: var(--err); border-color: var(--err); }
 
-main {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.25rem;
-  padding: 1.5rem;
+.topology {
+  position: relative;
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  overflow: visible;
+}
+.edges line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.75;
+}
+.edges text {
+  fill: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+
+.components {
+  position: relative;
+  z-index: 1;
+  /* Sized in JS (positionFor/CELL_WIDTH/CELL_HEIGHT) to fit the fixed grid -
+     no flex/flow layout here, every .component is placed absolutely. */
 }
 
 .component {
+  position: absolute;
   display: flex;
   align-items: center;
   gap: 0.9rem;
@@ -59,7 +87,12 @@ main {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1rem 1.25rem;
-  min-width: 240px;
+  width: 200px;
+}
+
+.body {
+  flex: 1;
+  min-width: 0; /* allow shrinking below content size so text-overflow: ellipsis applies */
 }
 
 .shape {
@@ -97,6 +130,13 @@ main {
   gap: 0.15rem 0.6rem;
   margin: 0;
   font-size: 0.85rem;
+  min-width: 0; /* let dt/dd shrink instead of forcing the grid wider than the card */
+}
+.metrics dt,
+.metrics dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .metrics dt { color: var(--muted); }
 .metrics dd { margin: 0; font-variant-numeric: tabular-nums; }
