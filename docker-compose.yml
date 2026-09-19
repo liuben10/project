@@ -16,8 +16,9 @@ services:
       COMPONENT_TYPE: app-server
       BACKEND_ENDPOINT: backend:8080
       POLL_INTERVAL: 3s
-      # Periodically calls java-api so a real dependency edge shows up on
-      # the dashboard (checkout-service -> java-api).
+      # Periodically calls java-api through an otelhttp-instrumented client,
+      # so the trace context propagates and a real dependency edge shows up
+      # on the dashboard (checkout-service -> java-api).
       CALL_TARGET: http://java-api:8080/api/orders/1
     depends_on:
       - backend
@@ -75,9 +76,10 @@ services:
     depends_on:
       - backend
 
-  # Produces a steady trickle of messages (feeding the Kafka throughput
-  # metrics) and, via edgeclient.Reporter, reports a kafka-producer ->
-  # kafka-broker dependency edge on every send.
+  # Produces a steady trickle of messages so the Kafka throughput metrics
+  # have something to show. No dependency edge is drawn for this: edges come
+  # from OpenTelemetry trace spans, and the Kafka broker is a third-party
+  # binary that never creates the server-side span an edge needs.
   kafka-producer:
     build:
       context: .
@@ -89,15 +91,11 @@ services:
       MODE: produce
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: load-test
-      KAFKA_BROKER_COMPONENT: kafka-broker
     depends_on:
       - kafka
       - backend
 
-  # Consumes those same messages and reports a kafka-consumer ->
-  # kafka-broker edge, so the dashboard shows both directions of Kafka
-  # traffic (produce and consume are two independent TCP dependencies on
-  # the broker, not a single shared edge).
+  # Consumes those same messages (same no-edge caveat as kafka-producer).
   kafka-consumer:
     build:
       context: .
@@ -109,7 +107,6 @@ services:
       MODE: consume
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: load-test
-      KAFKA_BROKER_COMPONENT: kafka-broker
     depends_on:
       - kafka
       - backend
@@ -118,9 +115,9 @@ services:
   # A real Spring Boot REST API with the distviz agent running inside the
   # same container, scraping the app's own Micrometer/Actuator Prometheus
   # endpoint for live HTTP request-rate and in-flight-request metrics.
-  # Calls inventory-service on every order creation (via EdgeReporter, a
-  # Java port of sdk/edgeclient), reporting a java-api -> inventory-service
-  # edge the same way the Go components report theirs.
+  # Calls inventory-service on every order creation. The OpenTelemetry Java
+  # auto-instrumentation agent (attached in entrypoint.sh) traces that call,
+  # so the java-api -> inventory-service edge needs no code in the app.
   java-api:
     build:
       context: .

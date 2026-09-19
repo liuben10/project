@@ -4,19 +4,29 @@
 package main
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"time"
 
-	"distviz/sdk/edgeclient"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func main() {
 	go burnResources()
 
 	if target := os.Getenv("CALL_TARGET"); target != "" {
+		if err := setupTracing(); err != nil {
+			log.Fatalf("setup tracing: %v", err)
+		}
 		go callTargetLoop(target)
 	}
 
@@ -28,12 +38,47 @@ func main() {
 	log.Fatal(http.ListenAndServe(":9000", nil))
 }
 
+// setupTracing wires up a real OpenTelemetry trace pipeline: each outbound
+// call gets a span exported directly to the backend's OTLP traces endpoint,
+// with the standard W3C traceparent header propagated to the callee so its
+// own tracing (e.g. auto-instrumentation) links up as a child span - that
+// parent/child relationship is what lets the backend infer a dependency
+// edge, not any distviz-specific reporting from this process.
+func setupTracing() error {
+	backendEndpoint := envOr("BACKEND_ENDPOINT", "localhost:8080")
+	componentName := envOr("COMPONENT_NAME", "unknown-component")
+
+	exporter, err := otlptracehttp.New(context.Background(),
+		otlptracehttp.WithEndpoint(backendEndpoint),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		return err
+	}
+
+	res, err := resource.New(context.Background(), resource.WithAttributes(
+		attribute.String("service.name", componentName),
+	))
+	if err != nil {
+		return err
+	}
+
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(provider)
+	otel.SetTextMapPropagator(propagation.TraceContext{}) // W3C traceparent - easy to forget, and otelhttp is a no-op without it
+	return nil
+}
+
 // callTargetLoop periodically calls another system's HTTP endpoint through
-// the edgeclient-wrapped client, so the resulting dependency shows up as an
-// edge on the topology dashboard. This is purely to exercise/demo that
-// feature - demoapp itself has no real reason to call anything.
+// an otelhttp-instrumented client, so each call gets a real OTel client
+// span and propagates trace context to the callee - demoapp itself has no
+// real reason to call anything, this exists purely to demonstrate the edge
+// ends up on the topology dashboard once the callee's span links up as a child.
 func callTargetLoop(target string) {
-	client := edgeclient.WrapClient(http.DefaultClient)
+	client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	for {
 		resp, err := client.Get(target)
 		if err != nil {
@@ -73,4 +118,11 @@ func sha256Like() uint64 {
 		x *= 0x100000001b3
 	}
 	return x
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

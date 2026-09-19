@@ -5,5 +5,4 @@ use (
 	./agent
 	./deploy/demo-app
 	./deploy/kafka-client
-	./sdk
 )

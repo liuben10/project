@@ -8,15 +8,16 @@ import java.time.Duration;
 
 import org.springframework.stereotype.Component;
 
-import com.distviz.demo.edge.EdgeReporter;
-
-// Calls the inventory-service to check stock when an order is created,
-// giving distviz a second real dependency edge to draw
-// (java-api -> inventory-service) alongside checkout-service -> java-api.
+// Calls the inventory-service to check stock when an order is created. No
+// distviz-specific code here: the OpenTelemetry Java auto-instrumentation
+// agent (attached via -javaagent, see entrypoint.sh) automatically wraps
+// java.net.http.HttpClient, creating a span for this call and propagating
+// the W3C traceparent header - inventory-service's own auto-instrumentation
+// picks that up as the parent of its inbound span, which is what lets the
+// backend infer the java-api -> inventory-service edge.
 @Component
 public class InventoryClient {
     private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final EdgeReporter edgeReporter = new EdgeReporter();
     private final String inventoryUrl;
 
     public InventoryClient() {
@@ -26,7 +27,6 @@ public class InventoryClient {
 
     public void checkStock(long sku) {
         URI uri = URI.create(inventoryUrl + "/" + sku);
-        edgeReporter.report(uri.getHost());
         try {
             HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(3)).GET().build();
             httpClient.send(request, HttpResponse.BodyHandlers.discarding());

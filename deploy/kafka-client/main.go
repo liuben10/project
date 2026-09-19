@@ -1,9 +1,13 @@
 // Command kafkaclient is a stand-in producer or consumer (chosen by MODE)
-// used to demonstrate distviz capturing edges for non-HTTP dependencies:
-// producing to and consuming from Kafka both establish a real TCP
-// connection to the broker, so both get reported the same way an HTTP call
-// would be, just via edgeclient.Reporter directly instead of the HTTP
-// Tripper wrapper.
+// used to generate Kafka traffic for the broker's JMX throughput metrics.
+//
+// It doesn't participate in dependency-edge detection: distviz now derives
+// edges from real OpenTelemetry trace spans (see backend/internal/
+// tracecorrelate), which relies on the server side of a call creating its
+// own span linked via the propagated trace context. The Kafka broker is a
+// third-party binary we don't instrument, so it never creates that span -
+// there's no inbound side to correlate against, the same limitation a
+// third-party server has under any auto-instrumentation-based tracing setup.
 package main
 
 import (
@@ -14,31 +18,24 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-
-	"distviz/sdk/edgeclient"
 )
 
 func main() {
 	mode := envOr("MODE", "produce")
 	brokers := envOr("KAFKA_BROKERS", "kafka:9092")
 	topic := envOr("KAFKA_TOPIC", "load-test")
-	// The logical component this process depends on - must match the
-	// Kafka broker's own COMPONENT_NAME for the edge to point at a real node.
-	brokerComponent := envOr("KAFKA_BROKER_COMPONENT", "kafka-broker")
-
-	reporter := edgeclient.NewReporter()
 
 	switch mode {
 	case "produce":
-		produce(brokers, topic, brokerComponent, reporter)
+		produce(brokers, topic)
 	case "consume":
-		consume(brokers, topic, brokerComponent, reporter)
+		consume(brokers, topic)
 	default:
 		log.Fatalf("unknown MODE %q (want \"produce\" or \"consume\")", mode)
 	}
 }
 
-func produce(brokers, topic, brokerComponent string, reporter *edgeclient.Reporter) {
+func produce(brokers, topic string) {
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(brokers),
 		Topic:                  topic,
@@ -54,14 +51,12 @@ func produce(brokers, topic, brokerComponent string, reporter *edgeclient.Report
 		cancel()
 		if err != nil {
 			log.Printf("produce: %v", err)
-		} else {
-			reporter.Report(brokerComponent)
 		}
 		time.Sleep(time.Duration(200+rand.Intn(600)) * time.Millisecond)
 	}
 }
 
-func consume(brokers, topic, brokerComponent string, reporter *edgeclient.Reporter) {
+func consume(brokers, topic string) {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{brokers},
 		Topic:   topic,
@@ -77,9 +72,7 @@ func consume(brokers, topic, brokerComponent string, reporter *edgeclient.Report
 		if err != nil {
 			log.Printf("consume: %v", err)
 			time.Sleep(2 * time.Second)
-			continue
 		}
-		reporter.Report(brokerComponent)
 	}
 }
 

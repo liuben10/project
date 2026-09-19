@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -21,7 +20,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 
 	"distviz/agent/internal/collector"
-	"distviz/agent/internal/relay"
 )
 
 // promMetricSets maps a PROM_METRIC_SET name to the Prometheus series this
@@ -133,28 +131,11 @@ func main() {
 		log.Printf("scraping prometheus metrics: url=%s set=%s", promScrapeURL, promMetricSet)
 	}
 
-	receiverAddr := envOr("RECEIVER_ADDR", ":4318")
-	relayServer := &http.Server{
-		Addr:    receiverAddr,
-		Handler: relay.Handler(fmt.Sprintf("http://%s/v1/metrics", backendEndpoint)),
-	}
-	go func() {
-		if err := relayServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("relay server error: %v", err)
-		}
-	}()
-
-	log.Printf("distviz agent started: component=%s type=%s backend=%s interval=%s cgroup_root=%s receiver=%s",
-		componentName, componentType, backendEndpoint, interval, cgroupRoot, receiverAddr)
+	log.Printf("distviz agent started: component=%s type=%s backend=%s interval=%s cgroup_root=%s",
+		componentName, componentType, backendEndpoint, interval, cgroupRoot)
 
 	<-ctx.Done()
 	log.Println("shutting down")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := relayServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("relay server shutdown: %v", err)
-	}
 }
 
 // registerPromScrape declares one observable gauge per configured metric and

@@ -13,9 +13,15 @@ RUN go mod download
 COPY agent/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/agent .
 
+FROM curlimages/curl:8.11.0 AS fetch-otel-agent
+ARG OTEL_JAVA_AGENT_VERSION=2.31.1
+RUN curl -fsSL -o /tmp/opentelemetry-javaagent.jar \
+    "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar"
+
 FROM eclipse-temurin:21-jre-alpine
 COPY --from=build-app /src/target/*.jar /app/app.jar
 COPY --from=build-agent --chmod=0755 /out/agent /usr/local/bin/distviz-agent
+COPY --from=fetch-otel-agent /tmp/opentelemetry-javaagent.jar /opt/otel/opentelemetry-javaagent.jar
 COPY --chmod=0755 deploy/inventory-service/entrypoint.sh /entrypoint.sh
 
 ENV COMPONENT_TYPE=app-server

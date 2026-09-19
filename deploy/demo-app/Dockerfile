@@ -9,8 +9,6 @@ COPY agent/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/agent .
 
 FROM golang:1.26 AS build-demoapp
-WORKDIR /src
-COPY sdk/ ./sdk/
 WORKDIR /src/deploy/demo-app
 COPY deploy/demo-app/go.mod deploy/demo-app/go.sum ./
 RUN go mod download

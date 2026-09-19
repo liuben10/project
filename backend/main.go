@@ -9,12 +9,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"distviz/backend/internal/api"
 	"distviz/backend/internal/hub"
 	"distviz/backend/internal/ingest"
 	"distviz/backend/internal/state"
 	"distviz/backend/internal/store"
+	"distviz/backend/internal/tracecorrelate"
 )
 
 //go:embed web
@@ -43,6 +45,15 @@ func main() {
 	ingestHandler := ingest.NewHandler(st, live)
 	ingestHandler.Broadcast = h.Broadcast
 
+	tracesHandler := ingest.NewTracesHandler(tracecorrelate.New(), ingestHandler.RecordEdge)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			tracesHandler.Sweep()
+		}
+	}()
+
 	apiHandler := api.NewHandler(live)
 
 	staticFS, err := fs.Sub(webFS, "web")
@@ -52,6 +63,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/metrics", ingestHandler)
+	mux.Handle("/v1/traces", tracesHandler)
 	mux.HandleFunc("/api/components", apiHandler.Components)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		h.ServeWS(w, r, func() []byte {

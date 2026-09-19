@@ -1,4 +1,4 @@
-# Build context is the repo root (needs the agent and sdk modules).
+# Build context is the repo root (needs the agent module).
 FROM golang:1.26 AS build-agent
 WORKDIR /src/agent
 COPY agent/go.mod agent/go.sum ./
@@ -7,8 +7,6 @@ COPY agent/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/agent .
 
 FROM golang:1.26 AS build-client
-WORKDIR /src
-COPY sdk/ ./sdk/
 WORKDIR /src/deploy/kafka-client
 COPY deploy/kafka-client/go.mod deploy/kafka-client/go.sum ./
 RUN go mod download
