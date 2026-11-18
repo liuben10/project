@@ -169,9 +169,21 @@
       ctx.fillStyle = rgba(theme.ink2);
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
-      ctx.fillText("Input: 784 pixels", grid.x + grid.size / 2, 20);
-      cols.forEach((c, j) =>
-        ctx.fillText(j === L - 1 ? "Output: 10 digits" : `Hidden layer ${j + 1}: ${c.n}`, c.x, 20));
+      // Use the longest set of titles that fits between columns (narrow screens get short ones).
+      const centers = [grid.x + grid.size / 2, ...cols.map((c) => c.x)];
+      const titleSets = [
+        ["Input: 784 pixels", ...cols.map((c, j) => (j === L - 1 ? "Output: 10 digits" : `Hidden layer ${j + 1}: ${c.n}`))],
+        ["Input", ...cols.map((c, j) => (j === L - 1 ? "Output" : `Hidden ${j + 1}`))],
+        ["In", ...cols.map((c, j) => (j === L - 1 ? "Out" : `H${j + 1}`))],
+      ];
+      const fits = (titles) => titles.every((t, k) => {
+        const half = ctx.measureText(t).width / 2;
+        if (centers[k] + half > w - 4) return false;
+        if (k === 0) return true;
+        return ctx.measureText(titles[k - 1]).width / 2 + half + 10 <= centers[k] - centers[k - 1];
+      });
+      const titles = titleSets.find(fits) || titleSets[titleSets.length - 1];
+      titles.forEach((t, k) => ctx.fillText(t, centers[k], 20));
 
       // Input -> hidden 1: 784 x n connections are too many to draw, so draw a faint fan.
       const c1 = cols[0];

@@ -208,6 +208,7 @@ input[type="range"] { accent-color: var(--pos); }
 }
 
 footer { margin-top: 24px; max-width: 760px; }
+footer .further { margin-top: 14px; }
 footer .author-link { margin-top: 12px; font-size: 15px; }
 
 /* ---- links + author page ---- */
