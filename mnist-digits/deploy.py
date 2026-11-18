@@ -38,14 +38,21 @@ BUILD = ROOT / "build" / "web"
 
 PAGES = ["index.html", "author.html"]  # served under their own names, never cached stale
 ASSETS = ["style.css", "nn.js", "viz.js", "explain.js", "app.js", "mnist-data.js", "favicon.svg"]
+# Files that must keep their exact names: crawlers look for robots.txt and sitemap.xml
+# at the site root, and og-image.png is referenced by absolute URL in the pages' meta tags.
+STATIC = ["robots.txt", "sitemap.xml", "og-image.png"]
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".txt": "text/plain; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".png": "image/png",
 }
 IMMUTABLE = "public, max-age=31536000, immutable"  # hashed names never change content
-NO_CACHE = "no-cache"                                # always revalidate index.html
+NO_CACHE = "no-cache"                                # always revalidate the HTML pages
+SHORT_CACHE = "public, max-age=3600"                 # fixed-name files: refresh within an hour
 
 # Browser security policy. The page needs img-src data: (neuron weight images are
 # data URLs) and must never use inline <script>, inline style="" attributes or eval.
@@ -91,6 +98,8 @@ def build() -> list[Path]:
             sys.exit(f"{name} isn't referenced by any page; remove it from ASSETS or link it")
     for page, html in pages.items():
         (BUILD / page).write_text(html, encoding="utf-8")
+    for name in STATIC:
+        shutil.copyfile(SRC / name, BUILD / name)
     files = sorted(BUILD.iterdir())
     total = sum(f.stat().st_size for f in files)
     print(f"Built {len(files)} files ({total / 1e6:.1f} MB) in {BUILD.relative_to(ROOT)}")
@@ -242,7 +251,7 @@ def upload(files: list[Path], bucket: str, region: str) -> None:
     # Assets first, pages last: new HTML only goes live once the files it links to exist.
     ordered = [f for f in files if f.name not in PAGES] + [BUILD / p for p in PAGES]
     for f in ordered:
-        cache = NO_CACHE if f.name in PAGES else IMMUTABLE
+        cache = NO_CACHE if f.name in PAGES else SHORT_CACHE if f.name in STATIC else IMMUTABLE
         step(f"uploading {f.name}")
         aws("s3", "cp", str(f), f"s3://{bucket}/{f.name}", "--region", region,
             "--content-type", CONTENT_TYPES[f.suffix], "--cache-control", cache, "--only-show-errors")

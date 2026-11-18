@@ -20,6 +20,7 @@ mnist-digits/
 ├── gradcheck.py   # verifies backprop against numerical derivatives
 ├── export_web_data.py  # packs an MNIST subset into web/mnist-data.js
 ├── deploy.py      # builds web/ and publishes it to AWS (S3 + CloudFront)
+├── make_preview.py # draws web/og-image.png, the link-preview image for social sites
 ├── web/           # interactive "Inside a Neural Network" page (see below)
 │   ├── index.html, style.css
 │   ├── nn.js      # fully-connected network + 5 activation functions, in plain JavaScript
@@ -144,6 +145,12 @@ idempotent, so rerunning it reuses what already exists:
 Each deploy builds `build/web/` with content-hashed asset names, cached for a year, and
 uploads `index.html` last, revalidated on every visit, so updates appear immediately.
 `--prune` removes files from older deploys, and `--build-only` skips AWS.
+
+For search engines and link previews, `web/` also has `robots.txt`, `sitemap.xml` and
+`og-image.png` (regenerate it with `python make_preview.py`). These keep their exact names
+and are cached for an hour. The pages' canonical and `og:` tags, `robots.txt` and
+`sitemap.xml` all contain the site's full URL, so update them if the address changes,
+for example when you add a custom domain.
 
 The page must keep working under the Content-Security-Policy: no inline `<script>`,
 no `style="…"` attributes and no `eval`. The policy allows `data:` images, which the
