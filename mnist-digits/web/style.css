@@ -50,6 +50,10 @@ body {
 .hero { padding-top: 40px; padding-bottom: 8px; }
 h1 { font-size: clamp(30px, 4.5vw, 46px); line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 12px; }
 .lede { font-size: 18px; color: var(--ink-2); max-width: 760px; margin: 0; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+section[id] { scroll-margin-top: 12px; }
 .loading { color: var(--ink-2); font-size: 15px; }
 .loading.error { color: var(--neg); font-weight: 600; }
 main { padding-bottom: 64px; transition: opacity .3s; }
@@ -128,12 +132,14 @@ select, button { font: inherit; color: var(--ink); }
 select {
   padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
 }
-button {
+button, a.button {
   padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); cursor: pointer; font-weight: 500;
 }
-button:hover { border-color: var(--muted); }
-button.primary { background: var(--pos); border-color: var(--pos); color: #fff; min-width: 150px; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+a.button { display: inline-block; text-decoration: none; color: var(--ink); }
+button.primary, a.button.primary { background: var(--pos); border-color: var(--pos); color: #fff; min-width: 150px; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--pos); outline-offset: 2px; }
 input[type="range"] { accent-color: var(--pos); }
 
@@ -206,6 +212,8 @@ input[type="range"] { accent-color: var(--pos); }
   margin-top: 16px; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--series-2);
   border-radius: 0 8px 8px 0; font-size: 14px; max-width: 520px;
 }
+
+.warning.alert { border-left-color: var(--neg); max-width: none; margin: 4px 0 16px; }
 
 footer { margin-top: 24px; max-width: 760px; }
 footer .further { margin-top: 14px; }

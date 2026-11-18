@@ -27,6 +27,7 @@
     lastChartSeen: 0,
     last: null,          // result of the most recent training step
     lastSketchUpdate: 0,
+    diverged: false,
     padHasInk: false,
   };
 
@@ -60,10 +61,11 @@
 
   // ---- network setup -------------------------------------------------------
   const LR_MIN_LOG = -4, LR_MAX_LOG = 0; // learning-rate slider spans 0.0001 .. 1 (log scale)
+  const fmtLr = (lr) => (lr >= 0.01 ? lr.toFixed(lr >= 0.1 ? 2 : 3) : lr.toPrecision(2));
   function setLr(lr) {
     state.lr = lr;
     $("lr").value = Math.round(((Math.log10(lr) - LR_MIN_LOG) / (LR_MAX_LOG - LR_MIN_LOG)) * 1000);
-    $("lr-out").textContent = lr >= 0.01 ? lr.toFixed(lr >= 0.1 ? 2 : 3) : lr.toPrecision(2);
+    $("lr-out").textContent = fmtLr(lr);
   }
 
   function buildNetwork({ keepLr = false } = {}) {
@@ -81,6 +83,7 @@
     state.evalPending = false;
     state.lastChartSeen = 0;
     state.last = null;
+    setDiverged(false);
     $("btn-train").textContent = "Start training";
     chart.reset();
     const n = state.net.numParams();
@@ -97,6 +100,9 @@
     $("act-formula").textContent = act.formula;
     $("act-about").textContent = act.about;
     drawActivationPlot($("act-canvas"), act);
+    $("lr-note").textContent =
+      `${act.label} trains best with a learning rate of ${fmtLr(act.lr)}, so picking it also sets ` +
+      `step 2's learning rate to that. To compare activations on equal terms, set the same rate there.`;
     const canGoNegative = act.f(-1) < 0;
     $("net-legend").innerHTML =
       `<span><i class="ramp pos"></i>neuron firing: weak → strong</span>` +
@@ -119,8 +125,8 @@
     const i = state.cursor, label = data.trainY[i];
     const res = net.trainSample(pixels(data.trainX, i, trainBuf), label, state.lr);
     if (!Number.isFinite(res.loss)) {
+      setDiverged(true);
       pause({ evaluate: false });
-      $("sample-info").innerHTML = `<span class="bad">The weights blew up (became infinite) because the learning rate is too high.</span> Lower it and press “Reset weights”.`;
       return null;
     }
     state.recent[state.recentPos] = res.correct ? 1 : 0;
@@ -140,6 +146,21 @@
     return res;
   }
 
+  // Once the weights become infinite, more training can't recover them: stop, say why,
+  // and only allow a reset.
+  function setDiverged(on) {
+    state.diverged = on;
+    $("btn-train").disabled = on;
+    $("btn-step").disabled = on;
+    const alert = $("train-alert");
+    alert.hidden = !on;
+    alert.textContent = on
+      ? `⚠ Training stopped: the weights blew up (became infinite) because the learning rate ` +
+        `(${fmtLr(state.lr)}) is too high for this network. Lower the learning rate, then press “Reset weights” to start over.`
+      : "";
+    updateDrawWarning();
+  }
+
   function evaluateTest() {
     const { data, net } = state;
     let correct = 0;
@@ -148,11 +169,22 @@
     state.lastEvalSeen = net.samplesSeen;
     chart.addTest(net.samplesSeen, 100 * state.testAcc);
     chart.draw();
+    // A full epoch at chance level usually means the learning rate killed the neurons
+    // (they all output the same thing). Training can continue, but say what's going on.
+    if (!state.diverged) {
+      const stuck = net.samplesSeen >= data.nTrain && state.testAcc < 0.2;
+      const alert = $("train-alert");
+      alert.hidden = !stuck;
+      alert.textContent = stuck
+        ? `⚠ Test accuracy is stuck near 10%, which is random guessing. The learning rate (${fmtLr(state.lr)}) ` +
+          `is probably too high: big steps can push neurons into a state they never recover from. Lower it and press “Reset weights”.`
+        : "";
+    }
   }
 
   function renderLastTraining() {
     const L = state.last;
-    if (!L) return;
+    if (!L || state.diverged) return;
     // net.a still holds this image's forward pass (backprop doesn't change it).
     trainView.show(state.net, { label: L.label });
     $("sample").value = L.i;
@@ -184,9 +216,23 @@
     const r = recentAccuracy();
     $("st-recent").textContent = r == null ? "–" : pct(r);
     $("st-test").textContent = state.testAcc == null ? "–" : pct(state.testAcc);
+    updateDrawWarning();
+  }
+
+  // The step 3 warning tracks training even while nothing is drawn on the pad.
+  function updateDrawWarning() {
+    const seen = state.net.samplesSeen;
+    const warn = $("draw-warning");
+    warn.hidden = !state.diverged && (seen >= 3000 || state.testAcc != null);
+    warn.textContent = state.diverged
+      ? "⚠ This network's weights blew up during training, so it can't classify anything. Reset it in step 2."
+      : seen === 0
+      ? "⚠ This network hasn't been trained yet, so its guesses are random. Train it in step 2 first. “As fast as possible” for a few seconds is enough."
+      : `⚠ This network has only trained on ${seen.toLocaleString()} images so far, so its guesses are still rough. Train it some more in step 2.`;
   }
 
   function start() {
+    if (state.diverged) return;
     state.running = true;
     state.lastTick = 0;
     state.owed = 1; // show the first image straight away
@@ -196,7 +242,7 @@
   function pause({ evaluate = true } = {}) {
     const wasRunning = state.running;
     state.running = false;
-    $("btn-train").textContent = state.net && state.net.samplesSeen ? "Resume training" : "Start training";
+    $("btn-train").textContent = state.net && state.net.samplesSeen && !state.diverged ? "Resume training" : "Start training";
     if (evaluate && wasRunning && state.net.samplesSeen !== state.lastEvalSeen) {
       evaluateTest();
       updateStats();
@@ -342,12 +388,7 @@
     if (!state.net || !drawView) return;
     const x = state.padHasInk ? preprocessPad() : null;
     drawPreview(x);
-    const seen = state.net.samplesSeen;
-    const warn = $("draw-warning");
-    warn.hidden = seen >= 3000;
-    warn.textContent = seen === 0
-      ? "⚠ This network hasn't been trained yet, so its guesses are random. Train it in step 2 first. “As fast as possible” for a few seconds is enough."
-      : `⚠ This network has only trained on ${seen.toLocaleString()} images so far, so its guesses are still rough. Train it some more in step 2.`;
+    updateDrawWarning();
     if (!x) {
       drawView.clear(state.net);
       $("guess-digit").textContent = "?";

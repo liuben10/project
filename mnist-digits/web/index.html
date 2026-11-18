@@ -29,6 +29,10 @@
       your own digit and see which neurons light up. Everything runs in your browser, and the
       network is written from scratch.
     </p>
+    <p class="hero-actions">
+      <a class="button primary" href="#train">Start training ↓</a>
+      <a class="button" href="#draw">Draw a digit ↓</a>
+    </p>
     <p id="loading" class="loading" role="status">Loading 12,000 handwritten digits…</p>
     <noscript><p class="loading error">This page runs a neural network in your browser and needs JavaScript enabled.</p></noscript>
   </header>
@@ -239,6 +243,7 @@
           </div>
           <p id="act-formula" class="formula"></p>
           <p id="act-about" class="muted"></p>
+          <p id="lr-note" class="note"></p>
           <div class="field">
             <label for="arch">Hidden layers</label>
             <select id="arch">
@@ -261,7 +266,7 @@
     </section>
 
     <!-- 2. Train ------------------------------------------------------------>
-    <section class="card" aria-labelledby="h-train">
+    <section class="card" id="train" aria-labelledby="h-train">
       <h2 id="h-train"><span class="step">2</span>Watch it learn</h2>
       <ol class="steps">
         <li><strong>Forward pass.</strong> An image's 784 pixels flow left to right. Every neuron
@@ -287,6 +292,7 @@
           <output id="lr-out"></output>
         </label>
       </div>
+      <p id="train-alert" class="warning alert" role="alert" hidden></p>
 
       <div class="stats">
         <div class="stat"><div class="label">Epoch</div><div class="value" id="st-epoch">1</div>
@@ -337,7 +343,7 @@
     </section>
 
     <!-- 3. Draw ------------------------------------------------------------->
-    <section class="card" aria-labelledby="h-draw">
+    <section class="card" id="draw" aria-labelledby="h-draw">
       <h2 id="h-draw"><span class="step">3</span>Try it yourself</h2>
       <p>
         Draw a digit below. It goes through the same network you trained above. Keep training
