@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "web"
 BUILD = ROOT / "build" / "web"
 
+PAGES = ["index.html", "author.html"]  # served under their own names, never cached stale
 ASSETS = ["style.css", "nn.js", "viz.js", "explain.js", "app.js", "mnist-data.js", "favicon.svg"]
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -76,16 +77,20 @@ def build() -> list[Path]:
         sys.exit("web/mnist-data.js is missing. Generate it first: python export_web_data.py")
     shutil.rmtree(BUILD, ignore_errors=True)
     BUILD.mkdir(parents=True)
-    html = (SRC / "index.html").read_text(encoding="utf-8")
+    pages = {p: (SRC / p).read_text(encoding="utf-8") for p in PAGES}
     for name in ASSETS:
         data = (SRC / name).read_bytes()
         stem, ext = name.rsplit(".", 1)
         hashed = f"{stem}.{hashlib.sha256(data).hexdigest()[:10]}.{ext}"
         (BUILD / hashed).write_bytes(data)
-        html, count = re.subn(rf'(src|href)="{re.escape(name)}"', rf'\1="{hashed}"', html)
-        if count != 1:
-            sys.exit(f"Expected exactly one reference to {name} in index.html, found {count}")
-    (BUILD / "index.html").write_text(html, encoding="utf-8")
+        total_refs = 0
+        for page, html in pages.items():
+            pages[page], count = re.subn(rf'(src|href)="{re.escape(name)}"', rf'\1="{hashed}"', html)
+            total_refs += count
+        if total_refs == 0:
+            sys.exit(f"{name} isn't referenced by any page; remove it from ASSETS or link it")
+    for page, html in pages.items():
+        (BUILD / page).write_text(html, encoding="utf-8")
     files = sorted(BUILD.iterdir())
     total = sum(f.stat().st_size for f in files)
     print(f"Built {len(files)} files ({total / 1e6:.1f} MB) in {BUILD.relative_to(ROOT)}")
@@ -234,10 +239,10 @@ def ensure_bucket_policy(bucket: str, region: str, distribution_arn: str) -> Non
 # ---- upload --------------------------------------------------------------------
 
 def upload(files: list[Path], bucket: str, region: str) -> None:
-    # Assets first, index.html last: the new HTML only goes live once its files exist.
-    ordered = [f for f in files if f.name != "index.html"] + [BUILD / "index.html"]
+    # Assets first, pages last: new HTML only goes live once the files it links to exist.
+    ordered = [f for f in files if f.name not in PAGES] + [BUILD / p for p in PAGES]
     for f in ordered:
-        cache = NO_CACHE if f.name == "index.html" else IMMUTABLE
+        cache = NO_CACHE if f.name in PAGES else IMMUTABLE
         step(f"uploading {f.name}")
         aws("s3", "cp", str(f), f"s3://{bucket}/{f.name}", "--region", region,
             "--content-type", CONTENT_TYPES[f.suffix], "--cache-control", cache, "--only-show-errors")

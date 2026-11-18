@@ -208,6 +208,25 @@ input[type="range"] { accent-color: var(--pos); }
 }
 
 footer { margin-top: 24px; max-width: 760px; }
+footer .author-link { margin-top: 12px; font-size: 15px; }
+
+/* ---- links + author page ---- */
+a { color: var(--pos); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+.back { margin: 0 0 18px; font-size: 15px; }
+.author-page main { max-width: 820px; }
+.author-page .hero { max-width: 820px; }
+.author-page .card p { max-width: 70ch; }
+.skills { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 20px; margin: 0; }
+.skills dt { font-weight: 600; }
+.skills dd { margin: 0; color: var(--ink-2); }
+.contact { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.contact li { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+.contact-label { width: 64px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+@media (max-width: 520px) {
+  .skills { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .skills dd { margin-bottom: 8px; }
+}
 
 .tooltip {
   position: fixed; z-index: 10; pointer-events: none;
