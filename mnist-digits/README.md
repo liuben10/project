@@ -119,7 +119,7 @@ python export_web_data.py --train 20000 --test 2000
 
 ### Deploying the page
 
-Live at **https://d2ope19ru4i9ms.cloudfront.net/**.
+Live at **https://nnplayground.dev/**.
 
 ```bash
 AWS_PROFILE=personal python deploy.py
@@ -141,16 +141,23 @@ idempotent, so rerunning it reuses what already exists:
 - a CloudFront distribution with HTTPS, HTTP/2 and HTTP/3, and compression; it's the only
   thing allowed to read the bucket
 - a security-headers policy: Content-Security-Policy, HSTS, no framing, `nosniff`
+- the custom domain `nnplayground.dev`: an ACM certificate (us-east-1) for it and `www.`,
+  both names attached to the distribution, and a CloudFront Function that 301-redirects
+  `www.nnplayground.dev` and the `d2ope19ru4i9ms.cloudfront.net` address to
+  `https://nnplayground.dev`. DNS is at Cloudflare: CNAMEs for `@` and `www` point to the
+  CloudFront address, set to **DNS only** (not proxied), plus the certificate's two
+  validation CNAMEs, which ACM needs to stay in place for automatic renewal.
+  `--domain ""` skips this step.
 
 Each deploy builds `build/web/` with content-hashed asset names, cached for a year, and
-uploads `index.html` last, revalidated on every visit, so updates appear immediately.
+uploads the HTML pages last, revalidated on every visit, so updates appear immediately.
 `--prune` removes files from older deploys, and `--build-only` skips AWS.
 
 For search engines and link previews, `web/` also has `robots.txt`, `sitemap.xml` and
 `og-image.png` (regenerate it with `python make_preview.py`). These keep their exact names
 and are cached for an hour. The pages' canonical and `og:` tags, `robots.txt` and
-`sitemap.xml` all contain the site's full URL, so update them if the address changes,
-for example when you add a custom domain.
+`sitemap.xml` all contain the site's full URL (`https://nnplayground.dev`), so update
+them together if the address changes.
 
 The page must keep working under the Content-Security-Policy: no inline `<script>`,
 no `style="…"` attributes and no `eval`. The policy allows `data:` images, which the

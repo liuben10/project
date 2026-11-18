@@ -9,14 +9,20 @@ What it sets up:
   * a CloudFront distribution in front of it: HTTPS, HTTP/2+3, compression,
     the only principal allowed to read the bucket (Origin Access Control)
   * a security-headers policy (CSP, HSTS, no framing, nosniff)
+  * the custom domain (nnplayground.dev and www.): an ACM certificate, the domain
+    names on the distribution, and a CloudFront Function that 301-redirects
+    www.nnplayground.dev and the *.cloudfront.net address to https://nnplayground.dev.
+    DNS lives at Cloudflare; if the certificate isn't validated yet, the script
+    prints the records to add and skips this step.
 
 Then it builds web/ into build/web/ with content-hashed asset names (cached for
-a year) and uploads them, uploading index.html (never cached) last.
+a year) and uploads them, uploading the HTML pages (never cached) last.
 
 Usage:
     python deploy.py                 # build + provision + upload
     python deploy.py --build-only    # just build build/web
     python deploy.py --prune         # also delete files left from older deploys
+    python deploy.py --domain ""     # skip custom-domain setup
     python deploy.py --site my-site --region us-east-1
 
 Requires the AWS CLI v2, signed in to the target account.
@@ -33,6 +39,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+DOMAIN = "nnplayground.dev"  # the canonical address; www. redirects to it
 SRC = ROOT / "web"
 BUILD = ROOT / "build" / "web"
 
@@ -245,6 +252,116 @@ def ensure_bucket_policy(bucket: str, region: str, distribution_arn: str) -> Non
     aws("s3api", "put-bucket-policy", "--bucket", bucket, "--region", region, "--policy", json.dumps(policy))
 
 
+# ---- custom domain ---------------------------------------------------------------
+
+def ensure_certificate(domain: str):
+    """Return the ARN of an ISSUED certificate for domain + www.domain, or None.
+
+    CloudFront only accepts certificates from us-east-1. If the certificate is
+    still waiting for DNS validation, print the records to add and return None.
+    """
+    region = ["--region", "us-east-1"]
+    arn = aws("acm", "list-certificates", *region, "--certificate-statuses", "ISSUED", "PENDING_VALIDATION",
+              "--query", f"CertificateSummaryList[?DomainName=='{domain}'].CertificateArn | [0]")
+    if not arn:
+        step(f"requesting certificate for {domain} and www.{domain}")
+        arn = aws("acm", "request-certificate", *region, "--domain-name", domain,
+                  "--subject-alternative-names", f"www.{domain}", "--validation-method", "DNS",
+                  "--idempotency-token", re.sub(r"\W", "", domain)[:32],
+                  "--query", "CertificateArn")
+        time.sleep(5)  # validation records take a moment to appear
+    cert = aws("acm", "describe-certificate", *region, "--certificate-arn", arn, "--query", "Certificate")
+    if cert["Status"] == "ISSUED":
+        step(f"certificate for {domain} is issued")
+        return arn
+    print(f"\n  The certificate for {domain} is {cert['Status']}. Add these DNS records at Cloudflare")
+    print("  (Proxy status: DNS only), wait a few minutes, then rerun deploy.py:")
+    for opt in cert.get("DomainValidationOptions", []):
+        rr = opt.get("ResourceRecord")
+        if rr:
+            print(f"    CNAME  {rr['Name'].rstrip('.')}  ->  {rr['Value'].rstrip('.')}")
+    print("  Skipping the custom-domain step for now.\n")
+    return None
+
+
+def redirect_function_code(domain: str) -> str:
+    """CloudFront Function: send every host other than the canonical domain there with a 301."""
+    return f"""function handler(event) {{
+  var request = event.request;
+  var host = request.headers.host ? request.headers.host.value : '';
+  if (host === '{domain}') {{
+    return request;
+  }}
+  var parts = [];
+  for (var key in request.querystring) {{
+    var entry = request.querystring[key];
+    var values = entry.multiValue ? entry.multiValue : [entry];
+    for (var i = 0; i < values.length; i++) {{
+      parts.push(values[i].value === '' ? key : key + '=' + values[i].value);
+    }}
+  }}
+  var location = 'https://{domain}' + request.uri + (parts.length ? '?' + parts.join('&') : '');
+  return {{
+    statusCode: 301,
+    statusDescription: 'Moved Permanently',
+    headers: {{ location: {{ value: location }}, 'cache-control': {{ value: 'max-age=3600' }} }}
+  }};
+}}
+"""
+
+
+def ensure_redirect_function(site: str, domain: str) -> str:
+    """Create or update the redirect function and publish it; return its LIVE ARN."""
+    name = f"{site}-canonical-redirect"
+    code_file = BUILD.parent / "redirect-function.js"
+    code = redirect_function_code(domain)
+    code_file.write_text(code, encoding="utf-8")
+    config = json.dumps({"Comment": f"301 to https://{domain}", "Runtime": "cloudfront-js-2.0"})
+    existing = aws("cloudfront", "describe-function", "--name", name, "--stage", "DEVELOPMENT", check=False)
+    if existing is None:
+        step(f"creating redirect function {name}")
+        etag = aws("cloudfront", "create-function", "--name", name, "--function-config", config,
+                   "--function-code", f"fileb://{code_file}")["ETag"]
+    else:
+        current = BUILD.parent / "redirect-function.current.js"
+        subprocess.run(["aws", "cloudfront", "get-function", "--name", name, "--stage", "LIVE", str(current)],
+                       capture_output=True)
+        if current.exists() and current.read_text(encoding="utf-8") == code:
+            step(f"redirect function {name} is up to date")
+            return existing["FunctionSummary"]["FunctionMetadata"]["FunctionARN"]
+        step(f"updating redirect function {name}")
+        etag = aws("cloudfront", "update-function", "--name", name, "--if-match", existing["ETag"],
+                   "--function-config", config, "--function-code", f"fileb://{code_file}")["ETag"]
+    published = aws("cloudfront", "publish-function", "--name", name, "--if-match", etag)
+    return published["FunctionSummary"]["FunctionMetadata"]["FunctionARN"]
+
+
+def ensure_distribution_domain(dist_id: str, domain: str, cert_arn: str, function_arn: str) -> bool:
+    """Attach domain + www.domain, the certificate and the redirect function. Returns True if changed."""
+    current = aws("cloudfront", "get-distribution-config", "--id", dist_id)
+    config, etag = current["DistributionConfig"], current["ETag"]
+    aliases = sorted([domain, f"www.{domain}"])
+    wanted_cert = {"ACMCertificateArn": cert_arn, "SSLSupportMethod": "sni-only",
+                   "MinimumProtocolVersion": "TLSv1.2_2021"}
+    wanted_functions = {"Quantity": 1, "Items": [{"EventType": "viewer-request", "FunctionARN": function_arn}]}
+    behavior = config["DefaultCacheBehavior"]
+    up_to_date = (
+        sorted(config.get("Aliases", {}).get("Items", [])) == aliases
+        and config["ViewerCertificate"].get("ACMCertificateArn") == cert_arn
+        and behavior.get("FunctionAssociations", {}).get("Items", []) == wanted_functions["Items"]
+    )
+    if up_to_date:
+        step(f"CloudFront already serves {domain} and www.{domain}")
+        return False
+    step(f"attaching {domain} and www.{domain} to CloudFront (with redirects)")
+    config["Aliases"] = {"Quantity": len(aliases), "Items": aliases}
+    config["ViewerCertificate"] = wanted_cert
+    behavior["FunctionAssociations"] = wanted_functions
+    aws("cloudfront", "update-distribution", "--id", dist_id, "--if-match", etag,
+        "--distribution-config", json.dumps(config))
+    return True
+
+
 # ---- upload --------------------------------------------------------------------
 
 def upload(files: list[Path], bucket: str, region: str) -> None:
@@ -273,7 +390,8 @@ def main():
     parser.add_argument("--region", default="us-east-1", help="region for the S3 bucket")
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--prune", action="store_true", help="delete files left over from older deploys")
-    parser.add_argument("--no-wait", action="store_true", help="don't wait for a new distribution to go live")
+    parser.add_argument("--no-wait", action="store_true", help="don't wait for CloudFront changes to go live")
+    parser.add_argument("--domain", default=DOMAIN, help='custom domain to attach ("" to skip)')
     args = parser.parse_args()
 
     files = build()
@@ -289,14 +407,21 @@ def main():
     dist, created = ensure_distribution(args.site, bucket, args.region, oac_id, headers_id)
     ensure_bucket_policy(bucket, args.region, dist["ARN"])
 
+    domain_changed, url = False, f"https://{dist['DomainName']}/"
+    if args.domain:
+        cert_arn = ensure_certificate(args.domain)
+        if cert_arn:
+            function_arn = ensure_redirect_function(args.site, args.domain)
+            domain_changed = ensure_distribution_domain(dist["Id"], args.domain, cert_arn, function_arn)
+            url = f"https://{args.domain}/"
+
     print("Uploading site:")
     upload(files, bucket, args.region)
     if args.prune:
         prune(files, bucket, args.region)
 
-    url = f"https://{dist['DomainName']}/"
-    if created and not args.no_wait:
-        step("waiting for the new CloudFront distribution to deploy (usually 5-10 minutes)")
+    if (created or domain_changed) and not args.no_wait:
+        step("waiting for CloudFront to roll out the change (usually 5-10 minutes)")
         aws("cloudfront", "wait", "distribution-deployed", "--id", dist["Id"])
     print(f"\nLive at {url}")
 
