@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inside a Neural Network</title>
+  <meta name="description" content="Watch a neural network learn to read handwritten digits, explore activation functions, then draw your own digit and see which neurons light up.">
+  <meta property="og:title" content="Inside a Neural Network">
+  <meta property="og:description" content="An interactive walkthrough of how a neural network learns to recognise handwritten digits, running entirely in your browser.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>Inside a Neural Network</h1>
+    <p class="lede">
+      Watch a neural network learn to read handwritten digits one image at a time, then draw
+      your own digit and see which neurons light up. Everything runs in your browser, and the
+      network is written from scratch.
+    </p>
+    <p id="loading" class="loading" role="status">Loading 12,000 handwritten digits…</p>
+    <noscript><p class="loading error">This page runs a neural network in your browser and needs JavaScript enabled.</p></noscript>
+  </header>
+
+  <main>
+    <!-- 1. Build ------------------------------------------------------------>
+    <section class="card" aria-labelledby="h-build">
+      <h2 id="h-build"><span class="step">1</span>Build the network</h2>
+      <p class="intro">
+        Before training a network, it helps to know what one is. Its building block, the artificial
+        neuron, is an idea more than 80 years old. This section covers where it came from, how it
+        works, how thousands of them become a few matrix multiplications, and how a network measures
+        its own mistakes. Then you'll build one.
+      </p>
+
+      <!-- History -->
+      <h3>Where the artificial neuron came from</h3>
+      <ol class="timeline">
+        <li><span class="year">1943</span><div><strong>A neuron as a logic gate.</strong>
+          Warren McCulloch and Walter Pitts modelled a brain cell as a simple unit: it adds up incoming
+          signals and “fires” if the total crosses a threshold. Networks of these units could compute
+          logical functions, but every connection had to be set by hand. Nothing was learned.</div></li>
+        <li><span class="year">1949</span><div><strong>Learning as changing connections.</strong>
+          Psychologist Donald Hebb proposed that learning happens when connections between neurons that
+          are active together grow stronger. The idea that <em>knowledge lives in connection
+          strengths</em> is still at the heart of every neural network.</div></li>
+        <li><span class="year">1958</span><div><strong>The perceptron learns.</strong>
+          Frank Rosenblatt built a neuron that learned its own weights from examples. When it answered
+          wrongly, each weight was nudged toward the right answer. His Mark I Perceptron used a 20×20
+          grid of light sensors, a crude 400-pixel camera, to learn to tell simple shapes apart.
+          The press predicted machines that would soon walk, talk and think.</div></li>
+        <li><span class="year">1969</span><div><strong>The limits of one layer.</strong>
+          In their book <em>Perceptrons</em>, Marvin Minsky and Seymour Papert showed that a single
+          layer can only separate categories with a straight line (in many dimensions, a flat plane).
+          It can't even learn XOR (“one or the other, but not both”). Stacking layers would fix
+          this, but nobody knew how to train the hidden ones. Enthusiasm and funding faded for
+          more than a decade.</div></li>
+        <li><span class="year">1986</span><div><strong>Backpropagation.</strong>
+          David Rumelhart, Geoffrey Hinton and Ronald Williams popularised a way to train hidden layers:
+          send the error backwards through the network with the chain rule from calculus, working
+          out each weight's share of the blame. (The underlying maths had appeared earlier, in work
+          by Seppo Linnainmaa and Paul Werbos.) It needed smooth activation functions instead of
+          the perceptron's hard on/off threshold.</div></li>
+        <li><span class="year">1989–98</span><div><strong>Reading handwriting.</strong>
+          Yann LeCun and colleagues trained networks to read handwritten ZIP codes and bank cheques.
+          In 1998 LeCun, Corinna Cortes and Christopher Burges released <strong>MNIST</strong>:
+          70,000 handwritten digits that became the “hello world” of machine learning. They're the
+          digits on this page.</div></li>
+        <li><span class="year">2012–</span><div><strong>Deep learning.</strong>
+          Large datasets, graphics cards (GPUs, very fast at matrix maths) and simpler activations like
+          ReLU made much deeper networks practical. A network called AlexNet won the 2012 ImageNet
+          image-recognition contest by a wide margin. Today's image, speech and language models are
+          still built from the same weighted-sum-plus-activation neuron.</div></li>
+      </ol>
+
+      <!-- Anatomy -->
+      <h3>Anatomy of a neuron</h3>
+      <div class="two-col">
+        <div>
+          <p>
+            A biological neuron collects signals from other cells through branches called dendrites.
+            If the combined stimulation is strong enough, it fires a pulse down its axon to the next
+            cells. Some connections (synapses) are stronger than others, and some inhibit rather than
+            excite. The artificial neuron keeps just this skeleton. The analogy is loose: real neurons
+            are far more complicated.
+          </p>
+          <ol class="parts">
+            <li><strong>Weights.</strong> Each input <var>x<sub>i</sub></var> is multiplied by a weight
+              <var>w<sub>i</sub></var>. A positive weight excites the neuron, a negative one inhibits it,
+              and a larger value means a stronger connection.</li>
+            <li><strong>Bias.</strong> A number <var>b</var> added on top, setting how easily the neuron
+              fires even before any input arrives.</li>
+            <li><strong>Sum.</strong> <span class="eq">z = w<sub>1</sub>x<sub>1</sub> + w<sub>2</sub>x<sub>2</sub> + … + w<sub>n</sub>x<sub>n</sub> + b</span></li>
+            <li><strong>Activation.</strong> <span class="eq">a = f(z)</span>. The activation function
+              <var>f</var> turns the sum into the neuron's output.</li>
+          </ol>
+          <p>
+            The perceptron used a hard <em>step</em>: output 1 if <var>z</var> &gt; 0, otherwise 0.
+            That works for one neuron trained with Rosenblatt's rule, but it blocks backpropagation.
+            The step is flat everywhere, so a small change to a weight usually changes nothing, and
+            there's no slope to say which direction is better. Smooth functions like the sigmoid
+            fixed this. That's what the activation choice below is about.
+          </p>
+        </div>
+        <figure class="lab" aria-labelledby="lab-title">
+          <figcaption id="lab-title"><strong>Try it: one neuron</strong>
+            <span class="muted small">Drag the sliders. Blue connections excite, red ones inhibit.</span></figcaption>
+          <svg id="neuron-svg" viewBox="0 0 360 200" role="img" aria-label="Diagram of a single neuron with three inputs"></svg>
+          <div class="lab-grid" id="lab-sliders"></div>
+          <div class="field inline">
+            <label for="lab-act">Activation</label>
+            <select id="lab-act"></select>
+          </div>
+          <p class="eq lab-readout" id="lab-readout" aria-live="polite"></p>
+        </figure>
+      </div>
+
+      <!-- Matrices -->
+      <h3>From one neuron to a layer: matrices</h3>
+      <div class="two-col">
+        <div>
+          <p>
+            A <em>layer</em> is a group of neurons that all read the same inputs, each with its own
+            weights. Write each neuron's weights as one row, stack the rows, and you have a
+            <strong>weight matrix</strong> <var>W</var>. All the layer's sums then come from a single
+            matrix–vector multiplication:
+          </p>
+          <p class="eq big">z = W x + b, &nbsp; a = f(z)</p>
+          <p>
+            Row <var>i</var> of <var>W</var> multiplied by the input vector <var>x</var> is exactly
+            neuron <var>i</var>'s weighted sum. A whole network is these operations chained:
+            each layer's output vector becomes the next layer's input.
+          </p>
+          <p id="layer-shapes"></p>
+          <p class="muted small">
+            Training libraries go one step further: they stack many images side by side, turning
+            many matrix–vector products into one matrix–matrix product. GPUs were built to do
+            exactly that for 3D graphics, which is a big reason deep learning took off on them.
+            This page processes one image at a time to keep each step visible.
+          </p>
+        </div>
+        <figure class="matrix-example" aria-label="Worked example of a matrix-vector multiplication">
+          <figcaption><strong>Worked example:</strong> a layer of 2 neurons with 3 inputs</figcaption>
+          <div class="matmul">
+            <table class="mat"><caption>W</caption>
+              <tr class="hl"><td>0.5</td><td>−1.0</td><td>2.0</td></tr>
+              <tr><td>1.5</td><td>0.0</td><td>−0.5</td></tr></table>
+            <span class="op">×</span>
+            <table class="mat"><caption>x</caption>
+              <tr><td>1.0</td></tr><tr><td>0.5</td></tr><tr><td>0.25</td></tr></table>
+            <span class="op">+</span>
+            <table class="mat"><caption>b</caption>
+              <tr class="hl"><td>0.1</td></tr><tr><td>−0.2</td></tr></table>
+            <span class="op">=</span>
+            <table class="mat"><caption>z</caption>
+              <tr class="hl"><td>0.6</td></tr><tr><td>1.175</td></tr></table>
+          </div>
+          <p class="small">
+            Highlighted row: 0.5×1.0 + (−1.0)×0.5 + 2.0×0.25 + 0.1 = <strong>0.6</strong>.<br>
+            Second row: 1.5×1.0 + 0.0×0.5 + (−0.5)×0.25 − 0.2 = <strong>1.175</strong>.
+          </p>
+        </figure>
+      </div>
+
+      <!-- Loss -->
+      <h3>Measuring mistakes: the loss function</h3>
+      <div class="two-col">
+        <div>
+          <p>
+            The output layer has 10 neurons, one per digit. Their raw sums are turned into
+            probabilities that add up to 1 by the <strong>softmax</strong> function:
+          </p>
+          <p class="eq big">p<sub>k</sub> = e<sup>z<sub>k</sub></sup> / (e<sup>z<sub>0</sub></sup> + … + e<sup>z<sub>9</sub></sup>)</p>
+          <p>
+            To learn, the network needs a single number saying how wrong it was: the
+            <strong>loss</strong>. For classification the standard choice is
+            <strong>cross-entropy</strong>, minus the logarithm of the probability given to the
+            correct digit:
+          </p>
+          <p class="eq big">L = −ln(p<sub>correct</sub>)</p>
+          <p>
+            A sure, correct answer (p = 1) costs nothing. A hesitant one costs a little. A confident
+            wrong answer costs a lot, because the logarithm shoots up as p approaches 0. A useful side
+            effect: the error signal at the output works out to simply <var>p</var> minus the right answer
+            (1 for the correct digit, 0 for the rest). That signal is what backpropagation sends back
+            through the network.
+          </p>
+        </div>
+        <figure class="lab">
+          <figcaption><strong>Try it:</strong> how much does an answer cost?</figcaption>
+          <canvas id="loss-canvas" aria-label="Plot of the loss as a function of the probability given to the correct digit"></canvas>
+          <label class="slider-field wide" for="loss-p">Probability given to the correct digit
+            <input type="range" id="loss-p" min="1" max="100" value="60">
+          </label>
+          <p class="eq lab-readout" id="loss-readout" aria-live="polite"></p>
+        </figure>
+      </div>
+
+      <!-- Learning -->
+      <h3>Learning: walking downhill</h3>
+      <p>
+        Training means finding weights that make the loss small. Imagine the loss as a landscape with
+        one dimension per weight, tens of thousands of them, that you have to descend in fog. You can't see
+        the valley, but you can feel the slope under your feet. Backpropagation measures that slope for
+        every weight at once: <span class="eq">∂L/∂w</span>, how much the loss would change if the weight
+        were nudged up. Then <strong>gradient descent</strong> takes a small step downhill:
+      </p>
+      <p class="eq big">w ← w − η · ∂L/∂w</p>
+      <p>
+        <var>η</var> (eta) is the <strong>learning rate</strong>, the step size, which you can set in step 2.
+        Too small and learning crawls; too large and it overshoots the valley and can blow up.
+        On its way back, the error passes through each neuron's activation slope
+        <var>f′(z)</var>. Where that slope is tiny, as in the flat tails of the sigmoid, the signal fades
+        layer by layer. Where it's exactly zero, as in the step function, learning stops entirely. That's
+        why the choice of activation matters so much.
+      </p>
+
+      <h3>Now build yours</h3>
+      <div class="setup-grid">
+        <div>
+          <p>
+            Every hidden neuron below uses the activation you pick here. Each one also shows its slope,
+            the dashed line, which is how much error it lets flow back during learning.
+          </p>
+          <div class="field">
+            <label for="activation">Activation function</label>
+            <select id="activation"></select>
+          </div>
+          <p id="act-formula" class="formula"></p>
+          <p id="act-about" class="muted"></p>
+          <div class="field">
+            <label for="arch">Hidden layers</label>
+            <select id="arch">
+              <option value="16,16">Small: 16 → 16 neurons</option>
+              <option value="32,16" selected>Medium: 32 → 16 neurons</option>
+              <option value="64,32">Large: 64 → 32 neurons</option>
+            </select>
+          </div>
+          <p id="param-count" class="muted"></p>
+          <p class="note">Changing either setting starts over with a fresh, untrained network.</p>
+        </div>
+        <figure class="act-plot">
+          <canvas id="act-canvas" aria-label="Plot of the selected activation function"></canvas>
+          <figcaption class="legend">
+            <span><i class="line-swatch s1"></i>f(x): neuron output for input x</span>
+            <span><i class="line-swatch s2 dashed"></i>f′(x): slope; how much error flows back</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 2. Train ------------------------------------------------------------>
+    <section class="card" aria-labelledby="h-train">
+      <h2 id="h-train"><span class="step">2</span>Watch it learn</h2>
+      <ol class="steps">
+        <li><strong>Forward pass.</strong> An image's 784 pixels flow left to right. Every neuron
+          weighs its inputs and fires.</li>
+        <li><strong>Compare.</strong> The 10 outputs are the network's confidence in each digit.
+          The further it is from the right answer, the bigger the <em>loss</em>.</li>
+        <li><strong>Backpropagate.</strong> The error flows right to left, working out how much
+          each weight is to blame.</li>
+        <li><strong>Update.</strong> Every weight is nudged slightly in the direction that
+          would have reduced the error. Then the next image arrives.</li>
+      </ol>
+
+      <div class="toolbar">
+        <button id="btn-train" class="primary" type="button">Start training</button>
+        <button id="btn-step" type="button">Train on 1 image</button>
+        <button id="btn-reset" type="button">Reset weights</button>
+        <label class="slider-field">Speed
+          <input type="range" id="speed" min="0" max="6" step="1" value="2">
+          <output id="speed-out"></output>
+        </label>
+        <label class="slider-field">Learning rate
+          <input type="range" id="lr" min="0" max="1000" step="1">
+          <output id="lr-out"></output>
+        </label>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="label">Epoch</div><div class="value" id="st-epoch">1</div>
+          <div class="sub" id="st-epoch-sub">one pass = 10,000 images</div></div>
+        <div class="stat"><div class="label">Images seen</div><div class="value" id="st-seen">0</div>
+          <div class="sub">one at a time</div></div>
+        <div class="stat"><div class="label">Weight updates</div><div class="value" id="st-updates">0</div>
+          <div class="sub" id="st-updates-sub"></div></div>
+        <div class="stat"><div class="label">Recent accuracy</div><div class="value" id="st-recent">–</div>
+          <div class="sub">last 500 training images</div></div>
+        <div class="stat"><div class="label">Test accuracy</div><div class="value" id="st-test">–</div>
+          <div class="sub">2,000 images it never trains on</div></div>
+      </div>
+
+      <div class="net-wrap">
+        <canvas id="net-train" aria-label="Diagram of the network's neurons, coloured by activation"></canvas>
+      </div>
+      <div class="sample-bar">
+        <label for="sample">Training image</label>
+        <input type="range" id="sample" min="0" max="9999" value="0">
+      </div>
+      <p id="sample-info" class="sample-info" aria-live="polite"></p>
+      <p class="muted small">
+        Drag the slider to browse the training images and see how the network currently responds
+        to each one. Training pauses while you browse, and resumes from the selected image.
+        Hover over any neuron for details.
+      </p>
+      <div class="legend" id="net-legend"></div>
+
+      <p class="callout">
+        <strong>Where is the knowledge?</strong> Every single image changes <em>all</em>
+        <span id="callout-params">the</span> weights at once, each by a tiny amount. No single
+        weight means “loop” or “straight line”. What the network knows is spread across all of them,
+        which is why trained networks are so hard to interpret. Hover over a first-layer neuron to
+        see the pattern its weights have drifted into.
+      </p>
+
+      <figure class="chart">
+        <figcaption>
+          <strong>Accuracy while training</strong>
+          <span class="legend">
+            <span><i class="line-swatch s1"></i>Recent training accuracy</span>
+            <span><i class="dot-swatch s2"></i>Test accuracy (checked each epoch and when paused)</span>
+          </span>
+        </figcaption>
+        <canvas id="acc-chart" aria-label="Line chart of accuracy as training progresses"></canvas>
+      </figure>
+    </section>
+
+    <!-- 3. Draw ------------------------------------------------------------->
+    <section class="card" aria-labelledby="h-draw">
+      <h2 id="h-draw"><span class="step">3</span>Try it yourself</h2>
+      <p>
+        Draw a digit below. It goes through the same network you trained above. Keep training
+        while your drawing is here and watch the guess firm up.
+      </p>
+      <div class="draw-grid">
+        <div class="pad-col">
+          <canvas id="pad" width="280" height="280" aria-label="Drawing pad"></canvas>
+          <div class="toolbar tight">
+            <button id="btn-clear" type="button">Clear</button>
+            <div class="preview">
+              <canvas id="pad-preview" width="28" height="28"></canvas>
+              <span class="muted small">What the network sees:<br>cropped, scaled and centred to 28×28 like MNIST</span>
+            </div>
+          </div>
+        </div>
+        <div class="result-col">
+          <div class="guess" aria-live="polite">
+            <div class="guess-label">Network's guess</div>
+            <div class="guess-digit" id="guess-digit">?</div>
+            <div class="guess-conf" id="guess-conf">Draw a digit (0–9) in the box</div>
+          </div>
+          <p id="draw-warning" class="warning" hidden></p>
+        </div>
+      </div>
+      <div class="net-wrap">
+        <canvas id="net-draw" aria-label="Diagram of the neurons activated by your drawing"></canvas>
+      </div>
+    </section>
+
+    <footer class="muted small">
+      A fully-connected network: every neuron connects to every neuron in the next layer.
+      The Python project in this folder trains a convolutional network, which reaches
+      higher accuracy but doesn't draw as a simple node diagram. Training here uses plain
+      stochastic gradient descent on a 10,000-image subset of MNIST.
+    </footer>
+  </main>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <script src="mnist-data.js"></script>
+  <script src="nn.js"></script>
+  <script src="viz.js"></script>
+  <script src="explain.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

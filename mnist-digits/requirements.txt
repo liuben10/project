@@ -1,0 +1,3 @@
+numpy>=1.24
+pillow>=9.0       # only used to read image files
+matplotlib>=3.7   # only used by visualize.py to draw heatmaps
